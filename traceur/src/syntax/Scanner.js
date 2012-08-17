@@ -1,4 +1,4 @@
-// Copyright 2011 Google Inc.
+// Copyright 2012 Google Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,13 +15,12 @@
 traceur.define('syntax', function() {
   'use strict';
 
-  var Token = traceur.syntax.Token;
-  var TokenType = traceur.syntax.TokenType;
-  var LiteralToken = traceur.syntax.LiteralToken;
   var IdentifierToken = traceur.syntax.IdentifierToken;
   var Keywords = traceur.syntax.Keywords;
-
+  var LiteralToken = traceur.syntax.LiteralToken;
   var SourcePosition = traceur.util.SourcePosition;
+  var Token = traceur.syntax.Token;
+  var TokenType = traceur.syntax.TokenType;
 
   /**
    * Scans javascript source code into tokens. All entrypoints assume the
@@ -253,6 +252,12 @@ traceur.define('syntax', function() {
      */
     index_: -1,
 
+    lastToken_: null,
+
+    get lastToken() {
+      return this.lastToken_;
+    },
+
     /** @return {LineNumberTable} */
     getLineNumberTable_: function() {
       return this.getFile().lineNumberTable;
@@ -294,7 +299,9 @@ traceur.define('syntax', function() {
     /** @return {Token} */
     nextToken: function() {
       this.peekToken();
-      return this.currentTokens_.shift();
+      var token = this.currentTokens_.shift();
+      this.lastToken_ = token;
+      return token;
     },
 
     clearTokenLookahead_: function() {
@@ -302,8 +309,17 @@ traceur.define('syntax', function() {
       this.currentTokens_.length = 0;
     },
 
-    /** @return {LiteralToken} */
+    clearTokenAndWhitespaceLookahead_: function() {
+      this.index_ = this.lastToken.location.end.offset;
+      this.currentTokens_.length = 0;
+    },
+
     nextRegularExpressionLiteralToken: function() {
+      return this.lastToken_ = this.nextRegularExpressionLiteralToken_();
+    },
+
+    /** @return {LiteralToken} */
+    nextRegularExpressionLiteralToken_: function() {
       this.clearTokenLookahead_();
 
       var beginToken = this.index_;
@@ -421,12 +437,106 @@ traceur.define('syntax', function() {
     },
 
     /**
+     * Called by the parser while parsing a quasi literal. Quasi literal
+     * portions are the part between the substitions.
+     */
+    nextQuasiLiteralPortionToken: function() {
+      this.clearTokenLookahead_();
+      var beginToken = this.index_;
+
+      if (this.isAtEnd_()) {
+        return this.lastToken_ =
+            this.createToken_(TokenType.END_OF_FILE, beginToken);
+      }
+
+      this.skipQuasiLiteralPortion_();
+      return this.lastToken_ =
+          new LiteralToken(TokenType.QUASI_LITERAL_PORTION,
+                           this.getTokenString_(beginToken),
+                           this.getTokenRange_(beginToken));
+    },
+
+    /**
+     * Called by the parser while parsing a quasi literal.
+     */
+    nextQuasiSubstitutionToken: function() {
+      this.clearTokenLookahead_();
+      var beginToken = this.index_;
+      var ch = this.nextChar_();
+      traceur.assert(ch == '$');
+      return this.lastToken_ = this.createToken_(TokenType.DOLLAR, beginToken);
+    },
+
+    nextQuasiIdentifier: function() {
+      this.clearTokenLookahead_();
+      var beginToken = this.index_;
+      var ch = this.nextChar_();
+      return this.scanIdentifierOrKeyword(beginToken, ch);
+    },
+
+    peekQuasiToken: function(type) {
+      this.clearTokenLookahead_();
+
+      var ch = this.peekChar_();
+      switch (type) {
+        case TokenType.IDENTIFIER:
+          return isIdentifierStart(ch);
+        case TokenType.END_OF_FILE:
+          return ch == '\x00';
+        default:
+          return ch == type;
+      }
+    },
+
+    // LiteralPortion ::
+    //   LiteralCharacter LiteralPortion
+    //   ε
+    //
+    // LiteralCharacter ::
+    //   SourceCharacter but not back quote ` or LineTerminator or back slash \ or dollar-sign $
+    //   LineTerminatorSequence
+    //   LineContinuation
+    //   \ EscapeSequence
+    //   $ lookahead ∉ {, IdentifierStart
+
+    skipQuasiLiteralPortion_: function() {
+      while (!this.isAtEnd_()) {
+        if (this.peek_('`')) {
+          break;
+        }
+        if (this.peek_('$')) {
+          var ch = this.peekChar_(1);
+          if (ch == '{') {
+            break;
+          }
+        }
+
+        if (this.peek_('\\')) {
+          this.skipStringLiteralEscapeSequence_();
+        } else {
+          this.nextChar_();
+        }
+      }
+    },
+
+    /**
      * @return {Token}
      */
     peekToken: function(opt_index) {
-      var index = opt_index || 0;
+      return this.peekToken_(opt_index || 0, true);
+    },
+
+    peekTokenNoLineTerminator: function(opt_index) {
+      this.clearTokenAndWhitespaceLookahead_();
+      return this.peekToken_(opt_index || 0, false);
+    },
+
+    peekToken_: function(index, allowLineTerminator) {
       while (this.currentTokens_.length <= index) {
-        this.currentTokens_.push(this.scanToken_());
+        var token = this.scanToken_(allowLineTerminator);
+        if (!token)
+          return null;
+        this.currentTokens_.push(token);
       }
       return this.currentTokens_[index];
     },
@@ -436,23 +546,24 @@ traceur.define('syntax', function() {
     },
 
     // 7.2 White Space
-    skipWhitespace_: function() {
-      while (!this.isAtEnd_() && this.peekWhitespace_()) {
+    skipWhitespace_: function(allowLineTerminator) {
+      while (!this.isAtEnd_() &&
+             this.peekWhitespace_(allowLineTerminator)) {
         this.nextChar_();
       }
     },
 
-    peekWhitespace_: function() {
-      return isWhitespace(this.peekChar_());
+    peekWhitespace_: function(allowLineTerminator) {
+      return isWhitespace(this.peekChar_()) &&
+          (allowLineTerminator || !isLineTerminator(this.peekChar_()));
     },
-
     // 7.4 Comments
-    skipComments_: function() {
-      while (this.skipComment_()) {}
+    skipComments_: function(allowLineTerminator) {
+      while (this.skipComment_(allowLineTerminator)) {}
     },
 
-    skipComment_: function() {
-      this.skipWhitespace_();
+    skipComment_: function(allowLineTerminator) {
+      this.skipWhitespace_(allowLineTerminator);
       if (!this.isAtEnd_() && this.peek_('/')) {
         switch (this.peekChar_(1)) {
           case '/':
@@ -487,13 +598,17 @@ traceur.define('syntax', function() {
      * @private
      * @return {Token}
      */
-    scanToken_: function() {
-      this.skipComments_();
+    scanToken_: function(allowLineTerminator) {
+      this.skipComments_(allowLineTerminator);
       var beginToken = this.index_;
-      if (this.isAtEnd_()) {
+      if (this.isAtEnd_())
         return this.createToken_(TokenType.END_OF_FILE, beginToken);
-      }
+
       var ch = this.nextChar_();
+
+      if (!allowLineTerminator && isLineTerminator(ch))
+        return null;
+
       switch (ch) {
         case '{': return this.createToken_(TokenType.OPEN_CURLY, beginToken);
         case '}': return this.createToken_(TokenType.CLOSE_CURLY, beginToken);
@@ -511,7 +626,13 @@ traceur.define('syntax', function() {
           if (this.peek_('.') && this.peekChar_(1) == '.') {
             this.nextChar_();
             this.nextChar_();
-            return this.createToken_(TokenType.SPREAD, beginToken);
+            return this.createToken_(TokenType.DOT_DOT_DOT, beginToken);
+          }
+
+          // .{ chain operator
+          if (this.peek_('{')) {
+            this.nextChar_();
+            return this.createToken_(TokenType.PERIOD_OPEN_CURLY, beginToken);
           }
 
           return this.createToken_(TokenType.PERIOD, beginToken);
@@ -575,7 +696,7 @@ traceur.define('syntax', function() {
           }
           if (this.peek_('>')) {
             this.nextChar_();
-            return this.createToken_(TokenType.FAT_ARROW, beginToken);
+            return this.createToken_(TokenType.ARROW, beginToken);
           }
           return this.createToken_(TokenType.EQUAL, beginToken);
         case '!':
@@ -631,9 +752,6 @@ traceur.define('syntax', function() {
             case '=':
               this.nextChar_();
               return this.createToken_(TokenType.MINUS_EQUAL, beginToken);
-            case '>':
-              this.nextChar_();
-              return this.createToken_(TokenType.THIN_ARROW, beginToken);
             default:
               return this.createToken_(TokenType.MINUS, beginToken);
           }
@@ -659,6 +777,8 @@ traceur.define('syntax', function() {
             default:
               return this.createToken_(TokenType.BAR, beginToken);
           }
+        case '`':
+          return this.createToken_(TokenType.BACK_QUOTE, beginToken);
 
           // TODO: add NumberToken
           // TODO: character following NumericLiteral must not be an
@@ -679,7 +799,7 @@ traceur.define('syntax', function() {
         case '\'':
           return this.scanStringLiteral_(beginToken, ch);
         default:
-          return this.scanIdentifierOrKeyword_(beginToken, ch);
+          return this.scanIdentifierOrKeyword(beginToken, ch);
       }
     },
 
@@ -748,15 +868,21 @@ traceur.define('syntax', function() {
       return new Token(type, this.getTokenRange_(beginToken));
     },
 
+    scanUnicode: function(beginToken, ch) {
+      // TODO: Implement Unicode escape sequence
+      this.reportError_(this.getPosition_(beginToken), 
+          'Unimplemented: Unicode escape sequence');
+      return this.createToken_(TokenType.ERROR, beginToken);
+    },
+
     /**
+     * @param {number} beginToken
+     * @param {string} ch
      * @return {Token}
-     * @private
      */
-    scanIdentifierOrKeyword_: function(beginToken, ch) {
+    scanIdentifierOrKeyword: function(beginToken, ch) {
       if (ch == '\\') {
-        // TODO: Unicode escape sequence
-        throw Error('Unicode escape sequence at line ' +
-                    this.getPosition().line);
+        return this.scanUnicode(beginToken, ch);
       }
       if (!isIdentifierStart(ch)) {
         this.reportError_(this.getPosition_(beginToken),
@@ -770,12 +896,11 @@ traceur.define('syntax', function() {
         this.nextChar_();
       }
       if (ch == '\\') {
-        // TODO: Unicode escape sequence
-        throw Error('Unicode escape sequence at line ' +
-                    this.getPosition().line);
+        return this.scanUnicode(beginToken, ch);
       }
 
       var value = this.source_.contents.substring(beginToken, this.index_);
+
       if (Keywords.isKeyword(value)) {
         return new Token(Keywords.getTokenType(value),
                          this.getTokenRange_(beginToken));

@@ -28,6 +28,8 @@ traceur.define('codegeneration', function() {
   var IdentifierExpression = traceur.syntax.trees.IdentifierExpression;
   var ParseTree = traceur.syntax.trees.ParseTree;
 
+  var createFunctionDeclaration = ParseTreeFactory.createFunctionDeclaration;
+
   /**
    * Replaces one identifier with another identifier (alpha
    * renaming). This transformation is safe to use for renaming a
@@ -48,7 +50,6 @@ traceur.define('codegeneration', function() {
     ParseTreeTransformer.call(this);
     this.oldName_ = oldName;
     this.newName_ = newName;
-    Object.freeze(this);
   }
 
   /**
@@ -109,6 +110,12 @@ traceur.define('codegeneration', function() {
       }
     },
 
+    transformThisExpression: function(tree) {
+      if (this.oldName_ !== PredefinedName.THIS)
+        return tree;
+      return createIdentifierExpression(this.newName_);
+    },
+
     /**
      * @param {FunctionDeclaration} tree
      * @return {ParseTree}
@@ -120,14 +127,18 @@ traceur.define('codegeneration', function() {
             tree.formalParameterList, tree.functionBody);
       }
 
-      if (// this.oldName_ is rebound in the new nested scope, so don't recurse
-          this.oldName_ in variablesInFunction(tree) ||
-          // 'arguments' is implicitly bound in function bodies; don't recurse
-          PredefinedName.ARGUMENTS == this.oldName_) {
+      // Do not recurse into functions if:
+      //  - 'arguments' is implicitly bound in function bodies
+      //  - 'this' is implicitly bound in function bodies
+      //  - this.oldName_ is rebound in the new nested scope
+      var doNotRecurse =
+          this.oldName_ === PredefinedName.ARGUMENTS ||
+          this.oldName_ === PredefinedName.THIS ||
+          this.oldName_ in variablesInFunction(tree);
+      if (doNotRecurse)
         return tree;
-      } else {
+      else
         return proto.transformFunctionDeclaration.call(this, tree);
-      }
     },
 
     /**
@@ -135,12 +146,14 @@ traceur.define('codegeneration', function() {
      * @return {ParseTree}
      */
     transformCatch: function(tree) {
-      if (this.oldName_ == tree.exceptionName.value) {
+      if (!tree.binding.isPattern() &&
+          this.oldName_ === tree.binding.identifierToken.value) {
         // this.oldName_ is rebound in the catch block, so don't recurse
         return tree;
-      } else {
-        return proto.transformCatch.call(this, tree);
       }
+
+      // TODO(arv): Compare the old name to the bindings in the pattern.
+      return proto.transformCatch.call(this, tree);
     }
   });
 

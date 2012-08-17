@@ -29,9 +29,12 @@ traceur.define('codegeneration', function() {
   var ArrayLiteralExpression = traceur.syntax.trees.ArrayLiteralExpression;
   var ArrayPattern = traceur.syntax.trees.ArrayPattern;
   var BinaryOperator = traceur.syntax.trees.BinaryOperator;
+  var BindingElement = traceur.syntax.trees.BindingElement;
+  var BindingIdentifier = traceur.syntax.trees.BindingIdentifier;
   var Block = traceur.syntax.trees.Block;
   var BreakStatement = traceur.syntax.trees.BreakStatement;
   var CallExpression = traceur.syntax.trees.CallExpression;
+  var CascadeExpression = traceur.syntax.trees.CascadeExpression;
   var CaseClause = traceur.syntax.trees.CaseClause;
   var Catch = traceur.syntax.trees.Catch;
   var ClassDeclaration = traceur.syntax.trees.ClassDeclaration;
@@ -39,14 +42,12 @@ traceur.define('codegeneration', function() {
   var ConditionalExpression = traceur.syntax.trees.ConditionalExpression;
   var ContinueStatement = traceur.syntax.trees.ContinueStatement;
   var DefaultClause = traceur.syntax.trees.DefaultClause;
-  var DefaultParameter = traceur.syntax.trees.DefaultParameter;
   var DoWhileStatement = traceur.syntax.trees.DoWhileStatement;
   var EmptyStatement = traceur.syntax.trees.EmptyStatement;
   var ExpressionStatement = traceur.syntax.trees.ExpressionStatement;
-  var FieldDeclaration = traceur.syntax.trees.FieldDeclaration;
   var Finally = traceur.syntax.trees.Finally;
-  var ForOfStatement = traceur.syntax.trees.ForOfStatement;
   var ForInStatement = traceur.syntax.trees.ForInStatement;
+  var ForOfStatement = traceur.syntax.trees.ForOfStatement;
   var ForStatement = traceur.syntax.trees.ForStatement;
   var FormalParameterList = traceur.syntax.trees.FormalParameterList;
   var FunctionDeclaration = traceur.syntax.trees.FunctionDeclaration;
@@ -57,8 +58,6 @@ traceur.define('codegeneration', function() {
   var LiteralExpression = traceur.syntax.trees.LiteralExpression;
   var MemberExpression = traceur.syntax.trees.MemberExpression;
   var MemberLookupExpression = traceur.syntax.trees.MemberLookupExpression;
-  var Mixin = traceur.syntax.trees.Mixin;
-  var MixinResolveList = traceur.syntax.trees.MixinResolveList;
   var NewExpression = traceur.syntax.trees.NewExpression;
   var ObjectLiteralExpression = traceur.syntax.trees.ObjectLiteralExpression;
   var ObjectPattern = traceur.syntax.trees.ObjectPattern;
@@ -76,7 +75,6 @@ traceur.define('codegeneration', function() {
   var SwitchStatement = traceur.syntax.trees.SwitchStatement;
   var ThisExpression = traceur.syntax.trees.ThisExpression;
   var ThrowStatement = traceur.syntax.trees.ThrowStatement;
-  var TraitDeclaration = traceur.syntax.trees.TraitDeclaration;
   var TryStatement = traceur.syntax.trees.TryStatement;
   var UnaryExpression = traceur.syntax.trees.UnaryExpression;
   var VariableDeclarationList = traceur.syntax.trees.VariableDeclarationList;
@@ -164,6 +162,16 @@ traceur.define('codegeneration', function() {
   }
 
   /**
+   * @param {string|IdentifierToken|IdentifierExpression|BindingIdentifier}
+   *           identifier
+   * @return {BindingElement}
+   */
+  function createBindingElement(arg) {
+    var binding = createBindingIdentifier(arg);
+    return new BindingElement(null, binding, null);
+  }
+
+  /**
    * TODO(arv): Make this less overloaded.
    *
    * @param {string|number|IdentifierToken|Array.<string>} arg0
@@ -173,7 +181,7 @@ traceur.define('codegeneration', function() {
   function createParameterList(arg0, var_args) {
     if (typeof arg0 == 'string') {
       // var_args of strings
-      var parameterList = map(arguments, createIdentifierExpression);
+      var parameterList = map(arguments, createBindingElement);
       return new FormalParameterList(null, parameterList);
     }
 
@@ -182,11 +190,11 @@ traceur.define('codegeneration', function() {
 
     if (arg0 instanceof IdentifierToken) {
       return new FormalParameterList(
-          null, [createIdentifierExpression(arg0)]);
+          null, [createBindingElement(arg0)]);
     }
 
     // Array.<string>
-    var builder = arg0.map(createIdentifierExpression);
+    var builder = arg0.map(createBindingElement);
     return new FormalParameterList(null, builder);
   }
 
@@ -205,7 +213,7 @@ traceur.define('codegeneration', function() {
       builder.push(
           isRestParameter ?
               createRestParameter(parameterName) :
-              createIdentifierExpression(parameterName));
+              createBindingElement(parameterName));
     }
 
     return new FormalParameterList(null, builder);
@@ -335,6 +343,21 @@ traceur.define('codegeneration', function() {
   }
 
   /**
+   * @param {string|IdentifierToken|IdentifierExpression|BindingIdentifier} identifier
+   * @return {BindingIdentifier}
+   */
+  function createBindingIdentifier(identifier) {
+    if (typeof identifier === 'string')
+      identifier = createIdentifierToken(identifier);
+    else if (identifier.type === ParseTreeType.BINDING_IDENTIFIER)
+      return identifier;
+    else if (identifier.type === ParseTreeType.IDENTIFIER_EXPRESSION)
+      return new BindingIdentifier(identifier.location,
+                                   identifier.identifierToken);
+    return new BindingIdentifier(null, identifier);
+  }
+
+  /**
    * @return {EmptyStatement}
    */
   function createEmptyStatement() {
@@ -417,8 +440,8 @@ traceur.define('codegeneration', function() {
   /**
    * @return {BreakStatement}
    */
-  function createBreakStatement() {
-    return new BreakStatement(null, null);
+  function createBreakStatement(opt_name) {
+    return new BreakStatement(null, opt_name || null);
   }
 
   // function.call(this, arguments)
@@ -465,12 +488,17 @@ traceur.define('codegeneration', function() {
   }
 
   /**
-   * @param {IdentifierToken} exceptionName
+   * @param {BindingIdentifier|IdentifierToken} identifier
    * @param {ParseTree} catchBody
    * @return {Catch}
    */
-  function createCatch(exceptionName, catchBody) {
-    return new Catch(null, exceptionName, catchBody);
+  function createCatch(identifier, catchBody) {
+    identifier = createBindingIdentifier(identifier);
+    return new Catch(null, identifier, catchBody);
+  }
+
+  function createCascadeExpression(operand, expressions) {
+    return new CascadeExpression(null, operand, expressions)
   }
 
   /**
@@ -504,8 +532,8 @@ traceur.define('codegeneration', function() {
   /**
    * @return {ContinueStatement}
    */
-  function createContinueStatement() {
-    return new ContinueStatement(null, null);
+  function createContinueStatement(opt_name) {
+    return new ContinueStatement(null, opt_name || null);
   }
 
   /**
@@ -514,15 +542,6 @@ traceur.define('codegeneration', function() {
    */
   function createDefaultClause(statements) {
     return new DefaultClause(null, statements);
-  }
-
-  /**
-   * @param {IdentifierExpression} identifier
-   * @param {ParseTree} expression
-   * @return {DefaultParameter}
-   */
-  function createDefaultParameter(identifier, expression) {
-    return new DefaultParameter(null, identifier, expression);
   }
 
   /**
@@ -562,16 +581,6 @@ traceur.define('codegeneration', function() {
    */
   function createExpressionStatement(expression) {
     return new ExpressionStatement(null, expression);
-  }
-
-  /**
-   * @param {boolean} isStatic
-   * @param {boolean} isConst
-   * @param {Array.<VariableDeclaration} expression
-   * @return {FieldDeclaration}
-   */
-  function createFieldDeclaration(isStatic, isConst, declarations) {
-    return new FieldDeclaration(null, isStatic, isConst, declarations);
   }
 
   /**
@@ -626,14 +635,14 @@ traceur.define('codegeneration', function() {
   }
 
   /**
-   * @param {string|IdentifierToken} name
+   * @param {string|IdentifierToken|BindingIdentifier} name
    * @param {FormalParameterList} formalParameterList
    * @param {Block} functionBody
    * @return {FunctionDeclaration}
    */
   function createFunctionDeclaration(name, formalParameterList, functionBody) {
-    if (typeof name == 'string')
-      name = createIdentifierToken(name);
+    if (name !== null)
+      name = createBindingIdentifier(name);
     return new FunctionDeclaration(null, name, false, formalParameterList,
         functionBody);
   }
@@ -644,21 +653,20 @@ traceur.define('codegeneration', function() {
    * @return {FunctionDeclaration}
    */
   function createFunctionExpression(formalParameterList, functionBody) {
-    return new FunctionDeclaration(null, null, false, formalParameterList,
-        functionBody);
+    return new FunctionDeclaration(null, null, false,
+                                   formalParameterList, functionBody);
   }
 
-  // [static] get propertyName () { ... }
+  // get propertyName () { ... }
   /**
    * @param {string|Token} propertyName
-   * @param {boolean} isStatic
    * @param {Block} body
    * @return {GetAccessor}
    */
-  function createGetAccessor(propertyName, isStatic, body) {
+  function createGetAccessor(propertyName, body) {
     if (typeof propertyName == 'string')
       propertyName = createPropertyNameToken(propertyName);
-    return new GetAccessor(null, propertyName, isStatic, body);
+    return new GetAccessor(null, propertyName, body);
   }
 
   /**
@@ -668,6 +676,8 @@ traceur.define('codegeneration', function() {
   function createIdentifierExpression(identifier) {
     if (typeof identifier == 'string')
       identifier = createIdentifierToken(identifier);
+    else if (identifier instanceof BindingIdentifier)
+      identifier = identifier.identifierToken;
     return new IdentifierExpression(null, identifier);
   }
 
@@ -780,23 +790,6 @@ traceur.define('codegeneration', function() {
   }
 
   /**
-   * @param {IdentifierToken} name
-   * @param {MixinResolveList} mixinResolves
-   * @return {Mixin}
-   */
-  function createMixin(name, mixinResolves) {
-    return new Mixin(null, name, mixinResolves);
-  }
-
-  /**
-   * @param {Array.<ParseTree>} resolves
-   * @return {MixinResolveList}
-   */
-  function createMixinResolveList(resolves) {
-    return new MixinResolveList(null, resolves);
-  }
-
-  /**
    * @param {ParseTree} operand
    * @param {ArgumentList} args
    * @return {NewExpression}
@@ -814,6 +807,31 @@ traceur.define('codegeneration', function() {
     return createCallExpression(
         createMemberExpression(PredefinedName.OBJECT, PredefinedName.FREEZE),
         createArgumentList(value));
+  }
+
+  /**
+   * Creates a call expression to Object.defineProperty(tree, name, descr).
+   *
+   * @param {ParseTree} tree
+   * @param {string} name
+   * @param {Object} descr This is a normal js object. The values in the descr
+   *     may be true, false or a ParseTree.
+   * @return {ParseTree}
+   */
+  function createDefineProperty(tree, name, descr) {
+    var propertyNameAndValues = Object.keys(descr).map(function(name) {
+      var value = descr[name];
+      if (!(value instanceof ParseTree))
+        value = createBooleanLiteral(!!value);
+      return createPropertyNameAssignment(name, value)
+    });
+
+    return createCallExpression(
+      createMemberExpression(PredefinedName.OBJECT,
+                             PredefinedName.DEFINE_PROPERTY),
+      createArgumentList(tree,
+          createStringLiteral(name),
+          createObjectLiteralExpression(propertyNameAndValues)));
   }
 
   /**
@@ -841,6 +859,7 @@ traceur.define('codegeneration', function() {
    * @return {ObjectPatternField}
    */
   function createObjectPatternField(identifier, element) {
+    identifier = createBindingIdentifier(identifier);
     return new ObjectPatternField(null, identifier, element);
   }
 
@@ -881,13 +900,11 @@ traceur.define('codegeneration', function() {
   }
 
   /**
-   * @param {string|IdentifierToken} identifier
+   * @param {string|IdentifierToken|BindingIdentifier} identifier
    * @return {RestParameter}
    */
   function createRestParameter(identifier) {
-    if (typeof identifier == 'string')
-      identifier = createIdentifierToken(identifier);
-    return new RestParameter(null, identifier);
+    return new RestParameter(null, createBindingIdentifier(identifier));
   }
 
   /**
@@ -909,17 +926,16 @@ traceur.define('codegeneration', function() {
 
   /**
    * @param {string|Token} propertyName
-   * @param {boolean} isStatic
    * @param {string|IdentifierToken} parameter
    * @param {Block} body
    * @return {SetAccessor}
    */
-  function createSetAccessor(propertyName, isStatic, parameter, body) {
+  function createSetAccessor(propertyName, parameter, body) {
     if (typeof propertyName == 'string')
       propertyName = createPropertyNameToken(propertyName);
     if (typeof parameter == 'string')
       parameter = createIdentifierToken(parameter);
-    return new SetAccessor(null, propertyName, isStatic, parameter, body);
+    return new SetAccessor(null, propertyName, parameter, body);
   }
 
   /**
@@ -953,15 +969,6 @@ traceur.define('codegeneration', function() {
    */
   function createThrowStatement(value) {
     return new ThrowStatement(null, value);
-  }
-
-  /**
-   * @param {IdentifierToken} name
-   * @param {Array.<ParseTree>} elements
-   * @return {TraitDeclaration}
-   */
-  function createTraitDeclaration(name, elements) {
-    return new TraitDeclaration(null, name, elements);
   }
 
   /**
@@ -1013,9 +1020,6 @@ traceur.define('codegeneration', function() {
     }
 
     var identifier = identifierOrDeclarations;
-    if (typeof identifier == 'string')
-      identifier = createIdentifierToken(identifier);
-
     return createVariableDeclarationList(
         binding, [createVariableDeclaration(identifier, initializer)]);
   }
@@ -1026,8 +1030,13 @@ traceur.define('codegeneration', function() {
    * @return {VariableDeclaration}
    */
   function createVariableDeclaration(identifier, initializer) {
-    if (typeof identifier == 'string' || identifier instanceof IdentifierToken)
-      identifier = createIdentifierExpression(identifier);
+    if (!(identifier instanceof ParseTree) ||
+        identifier.type !== ParseTreeType.BINDING_IDENTIFIER &&
+        identifier.type !== ParseTreeType.OBJECT_PATTERN &&
+        identifier.type !== ParseTreeType.ARRAY_PATTERN) {
+      identifier = createBindingIdentifier(identifier);
+    }
+
     return new VariableDeclaration(null, identifier, initializer);
   }
 
@@ -1041,10 +1050,19 @@ traceur.define('codegeneration', function() {
     if (listOrBinding instanceof VariableDeclarationList)
       return new VariableStatement(null, listOrBinding);
     var binding = listOrBinding;
-    if (typeof identifier == 'string')
-      identifier = createIdentifierToken(identifier);
     var list = createVariableDeclarationList(binding, identifier, initializer);
     return createVariableStatement(list);
+  }
+
+  /**
+   * Creates a (void 0) expression.
+   * @return {ParenExpression}
+   */
+  function createVoid0() {
+    return createParenExpression(
+      createUnaryExpression(
+        createOperatorToken(TokenType.VOID),
+        createNumberLiteral(0)));
   }
 
   /**
@@ -1085,6 +1103,7 @@ traceur.define('codegeneration', function() {
       createAssignmentExpression: createAssignmentExpression,
       createAssignmentStatement: createAssignmentStatement,
       createBinaryOperator: createBinaryOperator,
+      createBindingIdentifier: createBindingIdentifier,
       createBlock: createBlock,
       createBooleanLiteral: createBooleanLiteral,
       createBooleanLiteralToken: createBooleanLiteralToken,
@@ -1096,12 +1115,13 @@ traceur.define('codegeneration', function() {
       createCallStatement: createCallStatement,
       createCaseClause: createCaseClause,
       createCatch: createCatch,
+      createCascadeExpression: createCascadeExpression,
       createClassDeclaration: createClassDeclaration,
       createCommaExpression: createCommaExpression,
       createConditionalExpression: createConditionalExpression,
       createContinueStatement: createContinueStatement,
       createDefaultClause: createDefaultClause,
-      createDefaultParameter: createDefaultParameter,
+      createDefineProperty: createDefineProperty,
       createDoWhileStatement: createDoWhileStatement,
       createEmptyArgumentList: createEmptyArgumentList,
       createEmptyArrayLiteralExpression: createEmptyArrayLiteralExpression,
@@ -1112,11 +1132,11 @@ traceur.define('codegeneration', function() {
       createEmptyStatement: createEmptyStatement,
       createExpressionStatement: createExpressionStatement,
       createFalseLiteral: createFalseLiteral,
-      createFieldDeclaration: createFieldDeclaration,
       createFinally: createFinally,
-      createForOfStatement: createForOfStatement,
       createForInStatement: createForInStatement,
+      createForOfStatement: createForOfStatement,
       createForStatement: createForStatement,
+      createBindingElement: createBindingElement,
       createFunctionDeclaration: createFunctionDeclaration,
       createFunctionExpression: createFunctionExpression,
       createFunctionExpressionFormals: createFunctionExpressionFormals,
@@ -1127,8 +1147,6 @@ traceur.define('codegeneration', function() {
       createLabelledStatement: createLabelledStatement,
       createMemberExpression: createMemberExpression,
       createMemberLookupExpression: createMemberLookupExpression,
-      createMixin: createMixin,
-      createMixinResolveList: createMixinResolveList,
       createNewExpression: createNewExpression,
       createNullLiteral: createNullLiteral,
       createNullLiteralToken: createNullLiteralToken,
@@ -1161,7 +1179,6 @@ traceur.define('codegeneration', function() {
       createSwitchStatement: createSwitchStatement,
       createThisExpression: createThisExpression,
       createThrowStatement: createThrowStatement,
-      createTraitDeclaration: createTraitDeclaration,
       createTrueLiteral: createTrueLiteral,
       createTryStatement: createTryStatement,
       createUnaryExpression: createUnaryExpression,
@@ -1170,6 +1187,7 @@ traceur.define('codegeneration', function() {
       createVariableDeclaration: createVariableDeclaration,
       createVariableDeclarationList: createVariableDeclarationList,
       createVariableStatement: createVariableStatement,
+      createVoid0: createVoid0,
       createWhileStatement: createWhileStatement,
       createWithStatement: createWithStatement,
       createYieldStatement: createYieldStatement

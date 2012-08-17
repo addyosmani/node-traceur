@@ -27,7 +27,6 @@
 
   /**
    * Reads a script and eval's it into the global scope.
-   * TODO: this is needed for now because of how our scripts are designed.
    * Change this once we have a module system.
    * @param {string} filename
    */
@@ -100,6 +99,7 @@
     }
 
     console.log('Compiling...');
+
     var results = traceur.codegeneration.Compiler.compile(reporter, project);
     if (reporter.hadError()) {
       console.log('Compilation failed.');
@@ -111,7 +111,8 @@
     results.keys().forEach(function(file) {
       var tree = results.get(file);
       var filename = file.name;
-      var result = traceur.codegeneration.ParseTreeWriter.write(tree, false);
+
+      var result = traceur.outputgeneration.TreeWriter.write(tree, false);
       result = runtimestub + result;
       // Compute the output path
       var filedir = fs.realpathSync(path.dirname(filename));

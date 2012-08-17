@@ -1,0 +1,31 @@
+0 info it worked if it ends with ok
+1 verbose cli [ 'node', '/usr/local/bin/npm', 'install', '-g' ]
+2 info using npm@1.1.48
+3 info using node@v0.8.6
+4 verbose config file /Users/addyo/.npmrc
+5 verbose config file /usr/local/etc/npmrc
+6 verbose config file /usr/local/lib/node_modules/npm/npmrc
+7 verbose read json /usr/local/lib/package.json
+8 verbose read json /usr/local/lib/package.json
+9 verbose cache add [ '.', null ]
+10 silly cache add name=undefined spec="." args=[".",null]
+11 verbose parsed url { pathname: '.', path: '.', href: '.' }
+12 silly lockFile 3a52ce78- .
+13 verbose lock . /Users/addyo/.npm/3a52ce78-.lock
+14 verbose read json package.json
+15 silly lockFile 3a52ce78- .
+16 error addLocal Could not install .
+17 error Error: ENOENT, open 'package.json'
+18 error If you need help, you may report this log at:
+18 error     <http://github.com/isaacs/npm/issues>
+18 error or email it to:
+18 error     <npm-@googlegroups.com>
+19 error System Darwin 12.0.0
+20 error command "node" "/usr/local/bin/npm" "install" "-g"
+21 error cwd /Users/addyo/projects/traceur/traceur
+22 error node -v v0.8.6
+23 error npm -v 1.1.48
+24 error path package.json
+25 error code ENOENT
+26 error errno 34
+27 verbose exit [ 34, true ]

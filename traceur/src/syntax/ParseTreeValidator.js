@@ -1,4 +1,4 @@
-// Copyright 2011 Google Inc.
+// Copyright 2012 Google Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,11 +15,12 @@
 traceur.define('syntax', function() {
   'use strict';
 
+  var NewExpression = traceur.syntax.trees.NewExpression;
   var ParseTreeType = traceur.syntax.trees.ParseTreeType;
   var ParseTreeVisitor = traceur.syntax.ParseTreeVisitor;
-  var ParseTreeWriter = traceur.codegeneration.ParseTreeWriter;
+  var TreeWriter = traceur.outputgeneration.TreeWriter;
+  var PredefinedName = traceur.syntax.PredefinedName;
   var TokenType = traceur.syntax.TokenType;
-  var NewExpression = traceur.syntax.trees.NewExpression;
 
   /*
   TODO: add contextual information to the validator so we can check
@@ -87,7 +88,7 @@ traceur.define('syntax', function() {
       throw Error('Parse tree validation failure \'' + e.message + '\' at ' +
           locationString +
           ':\n\n' +
-          ParseTreeWriter.write(tree, e.tree, true) +
+          TreeWriter.write(tree, {highlighted: e.tree, showLineNumbers: true}) +
           '\n');
     }
   };
@@ -125,6 +126,15 @@ traceur.define('syntax', function() {
     },
 
     /**
+     * @param {ParseTreeType} type
+     * @param {traceur.syntax.trees.ParseTree} tree
+     * @param {string} message
+     */
+    checkType_: function(type, tree, message) {
+      this.checkVisit_(tree.type === type, tree, message);
+    },
+
+    /**
      * @param {traceur.syntax.trees.ArgumentList} tree
      */
     visitArgumentList: function(tree) {
@@ -152,14 +162,16 @@ traceur.define('syntax', function() {
     visitArrayPattern: function(tree) {
       for (var i = 0; i < tree.elements.length; i++) {
         var element = tree.elements[i];
-        this.checkVisit_(element.isNull() ||
+        this.checkVisit_(element === null ||
+            element.type === ParseTreeType.BINDING_ELEMENT ||
+            element.type == ParseTreeType.IDENTIFIER_EXPRESSION ||
             element.isLeftHandSideExpression() ||
             element.isPattern() ||
             element.isSpreadPatternElement(),
             element,
             'null, sub pattern, left hand side expression or spread expected');
 
-        if (element.isSpreadPatternElement()) {
+        if (element && element.isSpreadPatternElement()) {
           this.check_(i === (tree.elements.length - 1), element,
               'spread in array patterns must be the last element');
         }
@@ -241,12 +253,37 @@ traceur.define('syntax', function() {
               'assignment expression expected');
           break;
 
+        case TokenType.IDENTIFIER:
+          var foundIsIdentifier = false;
+          switch (tree.operator.value) {
+            case PredefinedName.IS:
+            case PredefinedName.ISNT:
+              foundIsIdentifier = true;
+          }
+          if (foundIsIdentifier)
+            break;
+
         default:
           this.fail_(tree, 'unexpected binary operator');
       }
       this.visitAny(tree.left);
       this.visitAny(tree.right);
     },
+
+    /**
+     * @param {traceur.syntax.trees.BindingElement} tree
+     */
+    visitBindingElement: function(tree) {
+      var binding = tree.binding;
+      this.checkVisit_(
+          binding.type == ParseTreeType.BINDING_IDENTIFIER ||
+          binding.type == ParseTreeType.OBJECT_PATTERN ||
+          binding.type == ParseTreeType.ARRAY_PATTERN,
+          binding,
+          'expected valid binding element');
+      this.visitAny(tree.initializer);
+    },
+
 
     /**
      * @param {traceur.syntax.trees.Block} tree
@@ -292,6 +329,9 @@ traceur.define('syntax', function() {
      * @param {traceur.syntax.trees.Catch} tree
      */
     visitCatch: function(tree) {
+      this.checkVisit_(tree.binding.isPattern() ||
+          tree.binding.type == ParseTreeType.BINDING_IDENTIFIER,
+          tree.binding, 'binding identifier expected');
       this.checkVisit_(tree.catchBody.type === ParseTreeType.BLOCK,
           tree.catchBody, 'block expected');
     },
@@ -303,12 +343,9 @@ traceur.define('syntax', function() {
       for (var i = 0; i < tree.elements.length; i++) {
         var element = tree.elements[i];
         switch (element.type) {
-          case ParseTreeType.FUNCTION_DECLARATION:
           case ParseTreeType.GET_ACCESSOR:
           case ParseTreeType.SET_ACCESSOR:
-          case ParseTreeType.MIXIN:
-          case ParseTreeType.REQUIRES_MEMBER:
-          case ParseTreeType.FIELD_DECLARATION:
+          case ParseTreeType.PROPERTY_METHOD_ASSIGNMENT:
             break;
           default:
             this.fail_(element, 'class element expected');
@@ -372,53 +409,43 @@ traceur.define('syntax', function() {
           declType == ParseTreeType.MODULE_DEFINITION ||
           declType == ParseTreeType.MODULE_DECLARATION ||
           declType == ParseTreeType.CLASS_DECLARATION ||
-          declType == ParseTreeType.TRAIT_DECLARATION ||
-          declType == ParseTreeType.EXPORT_PATH_LIST,
+          declType == ParseTreeType.EXPORT_MAPPING_LIST,
           tree.declaration,
           'expected valid export tree');
     },
 
     /**
-     * @param {traceur.syntax.trees.ExportPath} tree
+     * @param {traceur.syntax.trees.ExportMapping} tree
      */
-    visitExportPath: function(tree) {
-      this.checkVisit_(
-          tree.moduleExpression.type == ParseTreeType.MODULE_EXPRESSION,
-          tree.moduleExpression,
-          'module expression expected');
+    visitExportMapping: function(tree) {
+      if (tree.moduleExpression) {
+        this.checkVisit_(
+            tree.moduleExpression.type == ParseTreeType.MODULE_EXPRESSION,
+            tree.moduleExpression,
+            'module expression expected');
+      }
 
-      var specifierType = tree.specifier.type;
+      var specifierType = tree.specifierSet.type;
       this.checkVisit_(specifierType == ParseTreeType.EXPORT_SPECIFIER_SET ||
                        specifierType == ParseTreeType.IDENTIFIER_EXPRESSION,
-                       tree.specifier,
+                       tree.specifierSet,
                        'specifier set or identifier expected');
     },
 
     /**
-     * @param {traceur.syntax.trees.ExportPath} tree
+     * @param {traceur.syntax.trees.ExportMapping} tree
      */
-    visitExportPathList: function(tree) {
+    visitExportMappingList: function(tree) {
       this.check_(tree.paths.length > 0, tree,
                   'expected at least one path');
       for (var i = 0; i < tree.paths.length; i++) {
         var path = tree.paths[i];
         var type = path.type;
         this.checkVisit_(
-            type == ParseTreeType.EXPORT_PATH ||
-            type == ParseTreeType.EXPORT_PATH_SPECIFIER_SET ||
-            type == ParseTreeType.IDENTIFIER_EXPRESSION,
+            type == ParseTreeType.EXPORT_MAPPING,
             path,
-            'expected valid export path');
+            'expected export mapping');
       }
-    },
-
-    /**
-     * @param {traceur.syntax.trees.ExportPathSpecifierSet} tree
-     */
-    visitExportPathSpecifierSet: function(tree) {
-      this.check_(tree.specifiers.length > 0, tree,
-                  'expected at least one specifier');
-      this.visitList(tree.specifiers);
     },
 
     /**
@@ -430,7 +457,8 @@ traceur.define('syntax', function() {
       for (var i = 0; i < tree.specifiers.length; i++) {
         var specifier = tree.specifiers[i];
         this.checkVisit_(
-            specifier.type == ParseTreeType.EXPORT_SPECIFIER,
+            specifier.type == ParseTreeType.EXPORT_SPECIFIER ||
+            specifier.type == ParseTreeType.IDENTIFIER_EXPRESSION,
             specifier,
             'expected valid export specifier');
       }
@@ -445,19 +473,6 @@ traceur.define('syntax', function() {
     },
 
     /**
-     * @param {traceur.syntax.trees.FieldDeclaration} tree
-     */
-    visitFieldDeclaration: function(tree) {
-      for (var i = 0; i < tree.declarations.length; i++) {
-        var declaration = tree.declarations[i];
-        this.checkVisit_(
-            declaration.type === ParseTreeType.VARIABLE_DECLARATION,
-            declaration,
-            'variable declaration expected');
-      }
-    },
-
-    /**
      * @param {traceur.syntax.trees.Finally} tree
      */
     visitFinally: function(tree) {
@@ -469,7 +484,11 @@ traceur.define('syntax', function() {
      * @param {traceur.syntax.trees.ForOfStatement} tree
      */
     visitForOfStatement: function(tree) {
-      this.checkVisit_(tree.initializer.declarations.length <= 1,
+      this.checkVisit_(
+        tree.initializer.isPattern() ||
+        tree.initializer.type === ParseTreeType.IDENTIFIER_EXPRESSION ||
+        tree.initializer.type === ParseTreeType.VARIABLE_DECLARATION_LIST &&
+        tree.initializer.declarations.length === 1,
           tree.initializer,
           'for-each statement may not have more than one variable declaration');
       this.checkVisit_(tree.collection.isExpression(), tree.collection,
@@ -489,8 +508,11 @@ traceur.define('syntax', function() {
             tree.initializer,
             'for-in statement may not have more than one variable declaration');
       } else {
-        this.checkVisit_(tree.initializer.isExpression(),
-            tree.initializer, 'variable declaration or expression expected');
+        this.checkVisit_(tree.initializer.isPattern() ||
+                         tree.initializer.isExpression(),
+                         tree.initializer,
+                         'variable declaration, expression or ' +
+                         'pattern expected');
       }
       this.checkVisit_(tree.collection.isExpression(), tree.collection,
           'expression expected');
@@ -505,31 +527,22 @@ traceur.define('syntax', function() {
       for (var i = 0; i < tree.parameters.length; i++) {
         var parameter = tree.parameters[i];
         switch (parameter.type) {
+          case ParseTreeType.BINDING_ELEMENT:
+            break;
+
           case ParseTreeType.REST_PARAMETER:
             this.checkVisit_(
                 i === tree.parameters.length - 1, parameter,
                 'rest parameters must be the last parameter in a parameter' +
                 ' list');
-            // Fall through
-
-          case ParseTreeType.IDENTIFIER_EXPRESSION:
-            // TODO(dominicc): Add array and object patterns here when
-            // desugaring them is supported.
-            break;
-
-          case ParseTreeType.DEFAULT_PARAMETER:
-            // TODO(arv): There must not be a parameter after this one that is
-            // not a rest or another default parameter.
-            break;
-
-          case ParseTreeType.BIND_THIS_PARAMETER:
-            // TODO: this must be the first parameter, and is only legal in an
-            // arrow expression (->)
-            break;
+            this.checkType_(ParseTreeType.BINDING_IDENTIFIER,
+                            parameter.identifier,
+                            'binding identifier expected');
+            break
 
           default:
             this.fail_(parameter, 'parameters must be identifiers or rest' +
-                ' parameters');
+                ' parameters. Found: ' + parameter.type);
             break;
         }
         this.visitAny(parameter);
@@ -560,11 +573,28 @@ traceur.define('syntax', function() {
     },
 
     /**
+     * @param {traceur.syntax.trees.FunctionDeclaration} tree
+     */
+    visitFunctionDeclaration: function(tree) {
+      if (tree.name !== null) {
+        this.checkType_(ParseTreeType.BINDING_IDENTIFIER,
+                        tree.name,
+                        'binding identifier expected');
+      }
+      this.checkType_(ParseTreeType.FORMAL_PARAMETER_LIST,
+                      tree.formalParameterList,
+                      'formal parameters expected');
+
+      this.checkType_(ParseTreeType.BLOCK,
+                      tree.functionBody,
+                      'block expected');
+    },
+
+    /**
      * @param {traceur.syntax.trees.GetAccessor} tree
      */
     visitGetAccessor: function(tree) {
-      this.checkVisit_(tree.body.type === ParseTreeType.BLOCK, tree.body,
-          'block expected');
+      this.checkType_(ParseTreeType.BLOCK, tree.body, 'block expected');
     },
 
     /**
@@ -623,25 +653,14 @@ traceur.define('syntax', function() {
     },
 
     /**
-     * @param {traceur.syntax.trees.MixinResolveList} tree
-     */
-    visitMixinResolveList: function(tree) {
-      for (var i = 0; i < tree.resolves.length; i++) {
-        var resolve = tree.resolves[i];
-        this.check_(resolve.type === ParseTreeType.MIXIN_RESOLVE, resolve,
-            'mixin resolve expected');
-      }
-    },
-
-    /**
      * @param {traceur.syntax.trees.ModuleDefinition} tree
      */
     visitModuleDeclaration: function(tree) {
       for (var i = 0; i < tree.specifiers.length; i++) {
         var specifier = tree.specifiers[i];
-        this.checkVisit_(specifier.type == ParseTreeType.MODULE_SPECIFIER,
-                         specifier,
-                         'module specifier expected');
+        this.checkType_(ParseTreeType.MODULE_SPECIFIER,
+                        specifier,
+                        'module specifier expected');
       }
     },
 
@@ -657,8 +676,7 @@ traceur.define('syntax', function() {
             element.type === ParseTreeType.EXPORT_DECLARATION ||
             element.type === ParseTreeType.IMPORT_DECLARATION ||
             element.type === ParseTreeType.MODULE_DEFINITION ||
-            element.type === ParseTreeType.MODULE_DECLARATION ||
-            element.type === ParseTreeType.TRAIT_DECLARATION,
+            element.type === ParseTreeType.MODULE_DECLARATION,
             element,
             'module element expected');
       }
@@ -676,9 +694,9 @@ traceur.define('syntax', function() {
      * @param {traceur.syntax.trees.ModuleSpecifier} tree
      */
     visitModuleSpecifier: function(tree) {
-      this.checkVisit_(tree.expression.type == ParseTreeType.MODULE_EXPRESSION,
-                       tree.expression,
-                       'module expression expected');
+      this.checkType_(ParseTreeType.MODULE_EXPRESSION,
+                      tree.expression,
+                      'module expression expected');
     },
 
     /**
@@ -717,9 +735,11 @@ traceur.define('syntax', function() {
     visitObjectPattern: function(tree) {
       for (var i = 0; i < tree.fields.length; i++) {
         var field = tree.fields[i];
-        this.checkVisit_(field.type === ParseTreeType.OBJECT_PATTERN_FIELD,
-            field,
-            'object pattern field expected');
+        this.checkVisit_(field.type === ParseTreeType.OBJECT_PATTERN_FIELD ||
+                         field.type === ParseTreeType.BINDING_ELEMENT ||
+                         field.type === ParseTreeType.IDENTIFIER_EXPRESSION,
+                         field,
+                         'object pattern field expected');
       }
     },
 
@@ -727,12 +747,11 @@ traceur.define('syntax', function() {
      * @param {traceur.syntax.trees.ObjectPatternField} tree
      */
     visitObjectPatternField: function(tree) {
-      if (tree.element !== null) {
-        this.checkVisit_(tree.element.isLeftHandSideExpression() ||
-            tree.element.isPattern(),
-            tree.element,
-            'left hand side expression or pattern expected');
-      }
+      this.checkVisit_(tree.element.type === ParseTreeType.BINDING_ELEMENT ||
+                       tree.element.isPattern() ||
+                       tree.element.isLeftHandSideExpression(),
+                       tree.element,
+                       'binding element expected');
     },
 
     /**
@@ -782,13 +801,29 @@ traceur.define('syntax', function() {
     },
 
     /**
-     * @param {traceur.syntax.trees.QualifiedReference} tree
+     * @param {traceur.syntax.trees.QuasiLiteralExpression} tree
      */
-    visitQualifiedReference: function(tree) {
-      this.checkVisit_(
-          tree.moduleExpression.type == ParseTreeType.MODULE_EXPRESSION,
-          tree.moduleExpression,
-          'module expression expected');
+    visitQuasiLiteralExpression: function(tree) {
+      if (tree.operand) {
+        this.checkVisit_(tree.operand.isMemberExpression(), tree.operand,
+                         'member or call expression expected');
+      }
+
+      // The elements are alternating between QuasiLiteralPortion and
+      // QuasiSubstitution.
+      for (var i = 0; i < tree.elements.length; i++) {
+        var element = tree.elements[i];
+        if (i % 2) {
+          this.checkType_(ParseTreeType.QUASI_SUBSTITUTION,
+                          element,
+                          'Quasi substitution expected');
+        } else {
+          this.checkType_(ParseTreeType.QUASI_LITERAL_PORTION,
+                          element,
+                          'Quasi literal portion expected');
+
+        }
+      }
     },
 
     /**
@@ -805,8 +840,7 @@ traceur.define('syntax', function() {
      * @param {traceur.syntax.trees.SetAccessor} tree
      */
     visitSetAccessor: function(tree) {
-      this.checkVisit_(tree.body.type === ParseTreeType.BLOCK, tree.body,
-          'block expected');
+      this.checkType_(ParseTreeType.BLOCK, tree.body, 'block expected');
     },
 
     /**
@@ -840,29 +874,9 @@ traceur.define('syntax', function() {
           this.checkVisit_(defaultCount <= 1, caseClause,
               'no more than one default clause allowed');
         } else {
-          this.checkVisit_(caseClause.type === ParseTreeType.CASE_CLAUSE,
-              caseClause, 'case or default clause expected');
+          this.checkType_(ParseTreeType.CASE_CLAUSE,
+                          caseClause, 'case or default clause expected');
         }
-      }
-    },
-
-    /**
-     * @param {traceur.syntax.trees.TraitDeclaration} tree
-     */
-    visitTraitDeclaration: function(tree) {
-      for (var i = 0; i < tree.elements.length; i++) {
-        var element = tree.elements[i];
-        switch (element.type) {
-          case ParseTreeType.FUNCTION_DECLARATION:
-          case ParseTreeType.GET_ACCESSOR:
-          case ParseTreeType.SET_ACCESSOR:
-          case ParseTreeType.MIXIN:
-          case ParseTreeType.REQUIRES_MEMBER:
-            break;
-          default:
-            this.fail_(element, 'trait element expected');
-        }
-        this.visitAny(element);
       }
     },
 
@@ -881,15 +895,14 @@ traceur.define('syntax', function() {
      * @param {traceur.syntax.trees.TryStatement} tree
      */
     visitTryStatement: function(tree) {
-      this.checkVisit_(tree.body.type === ParseTreeType.BLOCK, tree.body,
-          'block expected');
+      this.checkType_(ParseTreeType.BLOCK, tree.body, 'block expected');
       if (tree.catchBlock !== null && !tree.catchBlock.isNull()) {
-        this.checkVisit_(tree.catchBlock.type === ParseTreeType.CATCH,
-            tree.catchBlock, 'catch block expected');
+        this.checkType_(ParseTreeType.CATCH, tree.catchBlock,
+                        'catch block expected');
       }
       if (tree.finallyBlock !== null && !tree.finallyBlock.isNull()) {
-        this.checkVisit_(tree.finallyBlock.type === ParseTreeType.FINALLY,
-            tree.finallyBlock, 'finally block expected');
+        this.checkType_(ParseTreeType.FINALLY, tree.finallyBlock,
+                        'finally block expected');
       }
       if ((tree.catchBlock === null || tree.catchBlock.isNull()) &&
           (tree.finallyBlock === null || tree.finallyBlock.isNull())) {
@@ -909,6 +922,10 @@ traceur.define('syntax', function() {
      * @param {traceur.syntax.trees.VariableDeclaration} tree
      */
     visitVariableDeclaration: function(tree) {
+      this.checkVisit_(tree.lvalue.isPattern() ||
+                       tree.lvalue.type == ParseTreeType.BINDING_IDENTIFIER,
+                       tree.lvalue,
+                       'binding identifier expected, found: ' + tree.lvalue.type);
       if (tree.initializer !== null) {
         this.checkVisit_(tree.initializer.isArrowFunctionExpression(),
             tree.initializer, 'assignment expression expected');

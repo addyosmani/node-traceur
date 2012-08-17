@@ -417,10 +417,10 @@ define("dijit/Tree",
         </h3>
 <pre>
 // goog/ui/tree/TreeControl.js
-module Events = require('goog/events');
+module Events from 'goog/events';
 import Events.{EventType, FocusHandler, KeyHandler};
 
-module Tree = require('goog/ui/tree');
+module Tree from 'goog/ui/tree';
 import Tree.{BaseNode, TreeNode, TypeAhead};
 
 export TreeControl = ...;
@@ -857,10 +857,10 @@ for (var node of allNodes(document)) {
       <div>
         <h3>DOM Node Generator</h3>
         <pre>
-function allNodes(node) {
+function* allNodes(node) {
   yield node;
   for (var child of node.childNodes || [])
-    yield for allNodes(child);
+    yield* allNodes(child);
 }
 
 for (var node of allNodes(document)) {

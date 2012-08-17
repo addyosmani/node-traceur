@@ -46,7 +46,6 @@ var classifyTraceurTokens = function() {};
   function ClassifiedText(category, text) {
     this.category = category;
     this.text = text;
-    Object.freeze(this);
   }
 
   /**
@@ -122,13 +121,11 @@ var classifyTraceurTokens = function() {};
           // contextual keywords
           switch (token.value) {
             case PredefinedName.GET:
-            case PredefinedName.MIXIN:
             case PredefinedName.MODULE:
             case PredefinedName.MODULE:
             case PredefinedName.REQUIRE:
             case PredefinedName.REQUIRES:
             case PredefinedName.SET:
-            case PredefinedName.TRAIT:
               c = Classification.CONTEXTUAL;
               break;
             default: // otherwise, identifier
@@ -184,7 +181,7 @@ var classifyTraceurTokens = function() {};
         case TokenType.CARET_EQUAL:
         case TokenType.SLASH:
         case TokenType.SLASH_EQUAL:
-        case TokenType.SPREAD:
+        case TokenType.DOT_DOT_DOT:
           c = Classification.OPERATOR;
           break;
 

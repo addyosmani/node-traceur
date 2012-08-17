@@ -25,7 +25,7 @@ traceur.define('runtime', function() {
 
   var ModuleTransformer = traceur.codegeneration.ModuleTransformer;
   var ProgramTransformer = traceur.codegeneration.ProgramTransformer;
-  var ParseTreeWriter = traceur.codegeneration.ParseTreeWriter;
+  var TreeWriter = traceur.outputgeneration.TreeWriter;
   var ModuleRequireVisitor = traceur.codegeneration.module.ModuleRequireVisitor;
 
   var canonicalizeUrl = traceur.util.canonicalizeUrl;
@@ -276,6 +276,24 @@ traceur.define('runtime', function() {
       return this.project.url;
     },
 
+    loadTextFile: function(url, callback, errback) {
+      var xhr = new XMLHttpRequest();
+      xhr.onload = function() {
+        if (xhr.status == 200 || xhr.status == 0) {
+          callback(xhr.responseText);
+        } else {
+          errback();
+        }
+        xhr = null;
+      };
+      xhr.onerror = function() {
+        errback();
+      }
+      xhr.open('GET', url, true);
+      xhr.send();
+      return xhr;
+    },
+
     load: function(url) {
       url = resolveUrl(this.url, url);
       var codeUnit = this.getCodeUnit(url);
@@ -283,25 +301,16 @@ traceur.define('runtime', function() {
         return codeUnit;
       }
 
+      codeUnit.state = LOADING;
       var loader = this;
-      var xhr = codeUnit.xhr = new XMLHttpRequest();
-      xhr.open('GET', url, true);
-      xhr.onload = function(e) {
-        if (xhr.status == 200 || xhr.status == 0) {
-          codeUnit.text = xhr.responseText;
-          codeUnit.state = LOADED;
-          loader.handleCodeUnitLoaded(codeUnit);
-        } else {
-          codeUnit.state = ERROR;
-          loader.handleCodeUnitLoadError(codeUnit);
-        }
-      };
-      xhr.onerror = function(e) {
+      var xhr = codeUnit.xhr = this.loadTextFile(url, function(text) {
+        codeUnit.text = text;
+        codeUnit.state = LOADED;
+        loader.handleCodeUnitLoaded(codeUnit);
+      }, function() {
         codeUnit.state = ERROR;
         loader.handleCodeUnitLoadError(codeUnit);
-      };
-      codeUnit.state = LOADING;
-      xhr.send();
+      });
       return codeUnit;
     },
 
@@ -374,7 +383,7 @@ traceur.define('runtime', function() {
      * @param {CodeUnit} codeUnit
      */
     handleCodeUnitLoadError: function(codeUnit) {
-      codeUnit.error = 'Failed to load \'' + codeUnit.url + '\'';
+      this.error = codeUnit.error = 'Failed to load \'' + codeUnit.url + '\'';
       this.abortAll();
     },
 
@@ -440,11 +449,14 @@ traceur.define('runtime', function() {
           continue;
         }
 
-        var file = codeUnit.file;
-        var results = codeUnit.transform();
-        codeUnit.transformedTree = results.get(file);
+        codeUnit.transformedTree = this.transformCodeUnit(codeUnit);
         codeUnit.state = TRANSFORMED;
       }
+    },
+
+    transformCodeUnit: function(codeUnit) {
+      var results = codeUnit.transform();
+      return results.get(codeUnit.file);
     },
 
     evaluate: function() {
@@ -475,9 +487,7 @@ traceur.define('runtime', function() {
         var result;
 
         try {
-          // TODO(arv): Eval in the right context.
-          result = traceur.strictGlobalEval(
-              ParseTreeWriter.write(codeUnit.transformedTree));
+          result = this.evalCodeUnit(codeUnit);
         } catch (ex) {
           codeUnit.error = ex.message
           this.abortAll();
@@ -501,6 +511,12 @@ traceur.define('runtime', function() {
         codeUnit.state = COMPLETE;
         codeUnit.dispatchComplete(codeUnit.result);
       }
+    },
+
+    evalCodeUnit: function(codeUnit) {
+      // TODO(arv): Eval in the right context.
+      return traceur.strictGlobalEval(
+          TreeWriter.write(codeUnit.transformedTree));
     }
   };
 
@@ -509,13 +525,18 @@ traceur.define('runtime', function() {
    */
   var currentCodeUnit;
 
+  var standardModuleUrlRegExp = /^@\w+$/;
+
   /**
-   * This is used to find the module for a require(url) ModuleExpression.
+   * This is used to find the module for a require url ModuleExpression.
    * @param {string} url
    * @return {Object} A module instance object for the given url in the current
    *     code loader.
    */
   function getModuleInstanceByUrl(url) {
+    if (standardModuleUrlRegExp.test(url))
+      return traceur.runtime.modules[url] || null;
+
     assert(currentCodeUnit);
     url = resolveUrl(currentCodeUnit.url, url);
     for (var i = 0; i < currentCodeUnit.dependencies.length; i++) {
@@ -534,10 +555,10 @@ traceur.define('runtime', function() {
    *     the initial loader.
    * @constructor
    */
-  function CodeLoader(url, reporter, project, parentLoader, opt_resolver) {
+  function CodeLoader(reporter, project, parentLoader, opt_resolver) {
     // TODO(arv): Implement parent loader
     // TODO(arv): Implement resolver
-    this.internalLoader_ = new InternalLoader(url, reporter, project)
+    this.internalLoader_ = new InternalLoader(reporter, project)
   }
 
   CodeLoader.prototype = {
@@ -647,6 +668,13 @@ traceur.define('runtime', function() {
 
   return {
     CodeLoader: CodeLoader,
-    getModuleInstanceByUrl: getModuleInstanceByUrl
+    getModuleInstanceByUrl: getModuleInstanceByUrl,
+    internals: {
+      CodeUnit: CodeUnit,
+      EvalCodeUnit: EvalCodeUnit,
+      EvalLoadCodeUnit: EvalLoadCodeUnit,
+      InternalLoader: InternalLoader,
+      LoadCodeUnit: LoadCodeUnit,
+    }
   };
 });

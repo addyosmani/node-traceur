@@ -82,6 +82,7 @@ traceur.define('syntax', function() {
     OPEN_SQUARE: '[',
     CLOSE_SQUARE: ']',
     PERIOD: '.',
+    PERIOD_OPEN_CURLY: '.{',
     SEMI_COLON: ';',
     COMMA: ',',
     OPEN_ANGLE: '<',
@@ -133,10 +134,12 @@ traceur.define('syntax', function() {
     REGULAR_EXPRESSION: 'regular expression literal',
 
     // Harmony extensions
-    SPREAD: '...',
+    DOT_DOT_DOT: '...',
     AWAIT: 'await',
-    FAT_ARROW: '=>',
-    THIN_ARROW: '->'
+    ARROW: '=>',
+    BACK_QUOTE: '`',
+    DOLLAR: '$',
+    QUASI_LITERAL_PORTION: 'quasi literal portion'
   };
 
   return {

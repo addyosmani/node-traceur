@@ -1,25 +1,57 @@
-# Traceur
+# Traceur for node
+
+This project provides an up to date version of the [Traceur](http://code.google.com/p/traceur-compiler/) module for node, originally by @aikar. Changes have been made to account for API updates to Traceur over the past year.
+
+## Install
+
+Installation is pretty straight-forward. To globally install, just use:
+
+```
+$ sudo npm install -g
+```
+
+## Quick start (binaries)
+
+Once installed, you can `require("traceur")` easily and then:
+
+* Create a parser tree using `traceur.outputgeneration.TreeWriter.write`
+* Compile using `traceur.codegeneration.Compiler.compile()`
+* or do whatever else you need to with Traceurs APIs
+
+The traceurc node binary is an excellent example of how to consume Traceur from node, demonstrating file compilation, capturing the output from Traceur which can then be written anywhere you wish and more.
+
+You can also use Traceur to consume modules with ES6 syntax as follows:
+
+```
+require("traceur");
+var Foo = require('./foo.js');
+var instance = new Foo;
+instance.bar();
+```
+
+To compile a directory using a binary with ```require()``` for the Traceur runtime:
+
+```
+traceurc input output
+```
+
+e.g to compile the examples provided simply run:
+
+```
+traceurc examples/example2 examples/output2
+``` 
+
+Note: this is not the same as simply using the command-lines tools Traceur comes with. See [bin/traceurc](https://github.com/addyosmani/traceur/blob/master/bin/traceurc).
+
 
 ## About
 Traceur provides support for Googles Traceur project which adds many enhanced
 features to the JavaScript language. For full details on what all Traceur does,
-visit <http://code.google.com/p/traceur-compiler/wiki/LanguageFeatures>
+visit [http://code.google.com/p/traceur-compiler/wiki/LanguageFeatures](http://code.google.com/p/traceur-compiler/wiki/LanguageFeatures).
 
-## NOTICE
-Version 2.0 of this package has transitioned effort to be a compiler and not a
-runtime loader. It still works just the same as a runtime loader, just really,
-DONT DO IT!
 
-## Install
-Traceur should only be installed globally to your developer system and never be
-included as part of your package. The Traceur syntax transformer is way too slow
-to use in a live system and should only be used as a compiler/tester.
 
-  - Install with NPM:
-     - `npm install traceur -g`
-
-## Usage
-Visit Traceur website as linked above for language features.
+## Usage (from original project)
 
 Traceur module provides 2 binaries:
 
@@ -29,18 +61,18 @@ traceur syntax. Note that startup will be slow as the source code is transformed
 
 This is the same thing as calling require('traceur') then requiring your file.
 
-DO NOT USE THIS FEATURE IN A PRODUCTION APP!
-
 `traceurc inputdir/ outputdir/`: this command takes a directory and finds every
 .js file in the directory and compiles it with traceur then writes it in the same
-dir format as input, to the output dir. A small runtime library is created at
+dir format as input, to the output dir. 
+
+A small runtime library is created at
 outputdir/node_modules/traceur-runtime.js that is auto loaded by all modules.
 
-You may need to add this to your package.json so npm wont ignore it...
-(I hate that addition to npm :())
+You may need to add this to your package.json so npm won't ignore it.
 
-USE THIS FEATURE TO DEPLOY/PUBLISH!
+
 ## License
+
 > The MIT License
 >
 >  Copyright (c) 2011 Daniel Ennis <aikar@aikar.co>

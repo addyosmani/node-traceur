@@ -15,6 +15,8 @@
 (function() {
   'use strict';
 
+  var TreeWriter = traceur.outputgeneration.TreeWriter;
+
   function compileAll() {
     // Code to handle automatically loading and running all scripts with type
     // text/traceur after the DOMContentLoaded event has fired.
@@ -85,7 +87,7 @@
 
     function compileScripts() {
       var reporter = new traceur.util.ErrorReporter();
-      var project = new traceur.semantics.symbols.Project();
+      var project = new traceur.semantics.symbols.Project(document.location.href);
 
       var fileToEntry = new traceur.util.ObjectMap();
 
@@ -104,7 +106,7 @@
 
       results.keys().forEach(function(file) {
         var tree = results.get(file);
-        var result = traceur.codegeneration.ParseTreeWriter.write(tree, false);
+        var result = TreeWriter.write(tree, {showLineNumbers: false});
         var entry = fileToEntry.get(file);
         var scriptElement = document.createElement('script');
         scriptElement.setAttribute('data-traceur-src-url', entry.name);

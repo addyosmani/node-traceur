@@ -15,19 +15,23 @@
 traceur.define('codegeneration', function() {
   'use strict';
 
-  var TokenType = traceur.syntax.TokenType;
   var ParseTree = traceur.syntax.trees.ParseTree;
-  var ParseTreeType = traceur.syntax.trees.ParseTreeType;
-  var ParseTreeTransformer = traceur.codegeneration.ParseTreeTransformer;
-  var PredefinedName = traceur.syntax.PredefinedName;
-
   var ParseTreeFactory = traceur.codegeneration.ParseTreeFactory;
+  var ParseTreeTransformer = traceur.codegeneration.ParseTreeTransformer;
+  var ParseTreeType = traceur.syntax.trees.ParseTreeType;
+  var PredefinedName = traceur.syntax.PredefinedName;
+  var TokenType = traceur.syntax.TokenType;
+
+  var createArgumentList = ParseTreeFactory.createArgumentList;
+  var createAssignmentExpression = ParseTreeFactory.createAssignmentExpression;
   var createBlock = ParseTreeFactory.createBlock;
   var createCallExpression = ParseTreeFactory.createCallExpression;
   var createCallStatement = ParseTreeFactory.createCallStatement;
+  var createExpressionStatement = ParseTreeFactory.createExpressionStatement;
   var createFinally = ParseTreeFactory.createFinally;
   var createIfStatement = ParseTreeFactory.createIfStatement;
   var createMemberExpression = ParseTreeFactory.createMemberExpression;
+  var createStringLiteral = ParseTreeFactory.createStringLiteral;
   var createTryStatement = ParseTreeFactory.createTryStatement;
   var createVariableStatement = ParseTreeFactory.createVariableStatement;
   var createWhileStatement = ParseTreeFactory.createWhileStatement;
@@ -40,7 +44,6 @@ traceur.define('codegeneration', function() {
   function ForOfTransformer(identifierGenerator) {
     ParseTreeTransformer.call(this);
     this.identifierGenerator_ = identifierGenerator;
-    Object.freeze(this);
   }
 
   /*
@@ -56,7 +59,7 @@ traceur.define('codegeneration', function() {
 
     // for ( initializer of collection ) statement
     //
-    // let $it = collection.__traceurIterator__();
+    // let $it = traceur.runtime.getIterator(collection);
     // try {
     //   while ($it.moveNext()) {
     //     initializer = $it.current;
@@ -74,22 +77,32 @@ traceur.define('codegeneration', function() {
       var tree = ParseTreeTransformer.prototype.transformForOfStatement.call(
           this, original);
 
-      //   let $it = collection.__traceurIterator__();
+      //   let $it = traceur.runtime.getIterator(collection);
       // TODO: use 'var' instead of 'let' to enable yield's from within for of statements
       var iter = this.identifierGenerator_.generateUniqueIdentifier();
       var initializer = createVariableStatement(TokenType.VAR, iter,
-          createCallExpression(createMemberExpression(tree.collection, PredefinedName.ITERATOR)));
+          createCallExpression(
+              createMemberExpression(PredefinedName.TRACEUR,
+                                     PredefinedName.RUNTIME,
+                                     PredefinedName.GET_ITERATOR),
+              createArgumentList(tree.collection)));
 
       // {
       //   initializer = $it.current;
       //   statement
       // }
-      var body = createBlock(
-          createVariableStatement(
-              tree.initializer.declarationType,
-              tree.initializer.declarations[0].lvalue.identifierToken,
-              createMemberExpression(iter, PredefinedName.CURRENT)),
-          tree.body);
+      var statement;
+      if (tree.initializer.type === ParseTreeType.VARIABLE_DECLARATION_LIST) {
+        statement = createVariableStatement(
+            tree.initializer.declarationType,
+            tree.initializer.declarations[0].lvalue,
+            createMemberExpression(iter, PredefinedName.CURRENT));
+      } else {
+        statement = createExpressionStatement(
+            createAssignmentExpression(tree.initializer,
+                createMemberExpression(iter, PredefinedName.CURRENT)));
+      }
+      var body = createBlock(statement, tree.body);
 
       // while ($it.moveNext()) { body }
       var loop = createWhileStatement(createCallExpression(

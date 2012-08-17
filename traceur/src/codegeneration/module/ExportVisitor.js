@@ -57,7 +57,7 @@ traceur.define('codegeneration.module', function() {
     },
 
     visitClassDeclaration: function(tree) {
-      this.addExport_(tree.name.value, tree);
+      this.addExport_(tree.name.identifierToken.value, tree);
     },
 
     visitExportDeclaration: function(tree) {
@@ -66,13 +66,13 @@ traceur.define('codegeneration.module', function() {
       this.inExport_ = false;
     },
 
-    visitExportPath: function(tree) {
+    visitExportMapping: function(tree) {
       this.relatedTree_ = tree.moduleExpression;
-      this.visitAny(tree.specifier);
+      this.visitAny(tree.specifierSet);
       this.relatedTree_ = null;
     },
 
-    visitExportPathList: function(tree) {
+    visitExportMappingList: function(tree) {
       for (var i = 0; i < tree.paths.length; i++) {
         var path = tree.paths[i];
         if (path.type == IDENTIFIER_EXPRESSION) {
@@ -83,25 +83,19 @@ traceur.define('codegeneration.module', function() {
       }
     },
 
-    visitExportPathSpecifier: function(tree) {
-      this.addExport_(tree.identifier.value, tree.specifier);
-    },
-
     visitExportSpecifier: function(tree) {
-      this.addExport_(tree.lhs.value, tree);
+      this.addExport_((tree.rhs || tree.lhs).value, tree);
     },
 
     visitFunctionDeclaration: function(tree) {
       if (tree.name) {
-        this.addExport_(tree.name.value, tree);
+        this.addExport_(tree.name.identifierToken.value, tree);
       }
     },
 
     visitIdentifierExpression: function(tree) {
       this.addExport_(tree.identifierToken.value, tree);
     },
-
-    // TODO(arv): visitImport
 
     visitModuleDefinition: function(tree) {
       this.addExport_(tree.name.value, tree);
@@ -113,10 +107,6 @@ traceur.define('codegeneration.module', function() {
 
     visitModuleSpecifier: function(tree) {
       this.addExport_(tree.identifier.value, tree);
-    },
-
-    visitTraitDeclaration: function(tree) {
-      this.addExport_(tree.name.value, tree);
     },
 
     visitVariableDeclaration: function(tree) {

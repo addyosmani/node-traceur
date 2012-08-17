@@ -207,7 +207,7 @@ traceur.define('util', function() {
     if (path == '..' || path == '.') {
       return '';
 
-    } else if (path.indexOf('./' == -1) && path.indexOf('/.') == -1) {
+    } else if (path.indexOf('./') == -1 && path.indexOf('/.') == -1) {
       // This optimization detects uris which do not contain dot-segments,
       // and as a consequence do not require any processing.
       return path;
@@ -281,6 +281,9 @@ traceur.define('util', function() {
    * @return {string}
    */
   function resolveUrl(base, url) {
+    if (url[0] === '@')
+      return url;
+
     var parts = split(url);
     var baseParts = split(base);
 

@@ -22,13 +22,11 @@ traceur.define('codegeneration', function() {
   var ForStatement = traceur.syntax.trees.ForStatement;
   var FunctionDeclaration = traceur.syntax.trees.FunctionDeclaration;
   var GetAccessor = traceur.syntax.trees.GetAccessor;
-  var Mixin = traceur.syntax.trees.Mixin;
   var NullTree = traceur.syntax.trees.NullTree;
   var ParseTree = traceur.syntax.trees.ParseTree;
   var ParseTreeType = traceur.syntax.trees.ParseTreeType;
   var Program = traceur.syntax.trees.Program;
   var SetAccessor = traceur.syntax.trees.SetAccessor;
-  var TraitDeclaration = traceur.syntax.trees.TraitDeclaration;
   var VariableDeclarationList = traceur.syntax.trees.VariableDeclarationList;
   var VariableDeclaration = traceur.syntax.trees.VariableDeclaration;
   var VariableStatement = traceur.syntax.trees.VariableStatement;
@@ -37,6 +35,7 @@ traceur.define('codegeneration', function() {
   var ParseTreeTransformer = traceur.codegeneration.ParseTreeTransformer;
   var ParseTreeFactory = traceur.codegeneration.ParseTreeFactory;
   var createAssignmentExpression = ParseTreeFactory.createAssignmentExpression;
+  var createBindingIdentifier = ParseTreeFactory.createBindingIdentifier;
   var createBlock = ParseTreeFactory.createBlock;
   var createCatch = ParseTreeFactory.createCatch;
   var createEmptyStatement = ParseTreeFactory.createEmptyStatement;
@@ -45,11 +44,9 @@ traceur.define('codegeneration', function() {
   var createForInStatement = ParseTreeFactory.createForInStatement;
   var createForStatement = ParseTreeFactory.createForStatement;
   var createFunctionDeclaration = ParseTreeFactory.createFunctionDeclaration;
-  var createFunctionExpression = ParseTreeFactory.createFunctionExpression;
   var createGetAccessor = ParseTreeFactory.createGetAccessor;
   var createIdentifierExpression = ParseTreeFactory.createIdentifierExpression;
   var createIdentifierToken = ParseTreeFactory.createIdentifierToken;
-  var createParenExpression = ParseTreeFactory.createParenExpression;
   var createSetAccessor = ParseTreeFactory.createSetAccessor;
   var createThrowStatement = ParseTreeFactory.createThrowStatement;
   var createTryStatement = ParseTreeFactory.createTryStatement;
@@ -243,7 +240,14 @@ traceur.define('codegeneration', function() {
       var scope = this.push_(this.createBlockScope_());
 
       // Transform the block contents
-      var statements = this.transformSourceElements(tree.statements);
+      var statements = tree.statements.map(function(statement) {
+        switch (statement.type) {
+          case ParseTreeType.FUNCTION_DECLARATION:
+            return this.transformFunctionDeclarationStatement_(statement);
+          default:
+            return this.transformAny(statement);
+        }
+      }, this);
 
       if (scope.blockVariables != null) {
         // rewrite into catch construct
@@ -289,7 +293,7 @@ traceur.define('codegeneration', function() {
                     createThrowStatement(
                         createUndefinedExpression())),
                 createCatch(                  // catch
-                    createIdentifierToken(variable),
+                    createBindingIdentifier(variable),
                     toBlock(statement)),
                 null);                       // finally
       }
@@ -573,25 +577,26 @@ traceur.define('codegeneration', function() {
     },
 
     /**
-     * Transforms a function. Function name in the block scope
-     * is scoped to the block only, so the same rewrite applies.
+     * Transforms a function declaration statement. Function name in the block
+     * scope is scoped to the block only, so the same rewrite applies.
      *
      * @param {FunctionDeclaration} tree
      * @return {ParseTree}
+     * @private
      */
-    transformFunctionDeclaration: function(tree) {
-      var body = this.transformFunctionBody_(tree.functionBody);
+    transformFunctionDeclarationStatement_: function(tree) {
+      var body = this.transformFunctionBody(tree.functionBody);
 
       if (tree.name != null && this.scope_.type == ScopeType.BLOCK) {
         // Named function in a block scope is only scoped to the block.
         // Add function name into variable hash to later 'declare' the
         // block scoped variable for it.
-        this.scope_.addBlockScopedVariable(tree.name.value);
+        this.scope_.addBlockScopedVariable(tree.name.identifierToken.value);
 
         // f = function f( ... ) { ... }
-        return createParenExpression(
+        return createExpressionStatement(
             createAssignmentExpression(
-                createIdentifierExpression(tree.name),
+                createIdentifierExpression(tree.name.identifierToken),
                 createFunctionDeclaration(tree.name,
                     tree.formalParameterList, body)));
       } else if (body != tree.functionBody) {
@@ -600,29 +605,6 @@ traceur.define('codegeneration', function() {
       } else {
         return tree;
       }
-    },
-
-    /**
-     * @param {GetAccessor} tree
-     * @return {ParseTree}
-     */
-    transformGetAccessor: function(tree) {
-      var body = this.transformFunctionBody_(tree.body);
-
-      if (body != tree.body) {
-        tree = createGetAccessor(tree.propertyName, tree.isStatic, body);
-      }
-
-      return tree;
-    },
-
-    /**
-     * Mixin should be compiled away by now.
-     * @param {Mixin} tree
-     * @return {ParseTree}
-     */
-    transformMixin: function(tree) {
-      throw new Error('Mixin should be transformed away.');
     },
 
     /**
@@ -638,30 +620,6 @@ traceur.define('codegeneration', function() {
 
       this.pop_(scope);
       return result;
-    },
-
-    /**
-     * @param {SetAccessor} tree
-     * @return {ParseTree}
-     */
-    transformSetAccessor: function(tree) {
-      var body = this.transformFunctionBody_(tree.body);
-
-      if (body != tree.body) {
-        tree = createSetAccessor(
-            tree.propertyName, tree.isStatic, tree.parameter, body);
-      }
-      return tree;
-    },
-
-    /** Trait should be transformed away by now. */
-    /**
-     * @param {TraitDeclaration} tree
-     * @return {ParseTree}
-     */
-    transformTraitDeclaration: function(tree) {
-      // This should be rewritten away by now.
-      throw new Error('Trait should be transformed away.');
     },
 
     /**
@@ -809,7 +767,7 @@ traceur.define('codegeneration', function() {
      * @param {Block} tree
      * @return {Block}
      */
-    transformFunctionBody_: function(body) {
+    transformFunctionBody: function(body) {
       // Push new function context
       var scope = this.push_(this.createFunctionScope_());
 
@@ -842,12 +800,12 @@ traceur.define('codegeneration', function() {
      * @return {string}
      */
     getVariableName_: function(variable) {
+      // TODO(arv): This should just be a visitor visiting BindingIdentifier
       var lvalue = variable.lvalue;
-      if (lvalue.type == ParseTreeType.IDENTIFIER_EXPRESSION) {
+      if (lvalue.type == ParseTreeType.BINDING_IDENTIFIER) {
         return lvalue.identifierToken.value;
-      } else {
-        throw new Error('Unexpected destructuring declaration found.');
       }
+      throw new Error('Unexpected destructuring declaration found.');
     }
   });
 

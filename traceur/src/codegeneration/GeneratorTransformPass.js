@@ -34,6 +34,8 @@ traceur.define('codegeneration', function() {
 
   var TokenType = traceur.syntax.TokenType;
 
+  var options = traceur.options.transform;
+
   /**
    * Can tell you if function body contains a yield statement. Does not search into
    * nested functions.
@@ -81,7 +83,7 @@ traceur.define('codegeneration', function() {
   });
 
   /**
-   * This transformer turns "yield for E" into a ForOf that
+   * This transformer turns "yield* E" into a ForOf that
    * contains a yield and is lowered by the ForOfTransformer.
    */
   function YieldForTransformer(identifierGenerator) {
@@ -98,11 +100,12 @@ traceur.define('codegeneration', function() {
 
     transformYieldStatement: function(tree) {
       if (tree.isYieldFor) {
-        // yield for E
+        // yield* E
         //   becomes
         // for (var $TEMP of E) { yield $TEMP; }
 
-        var id = createIdentifierExpression(this.identifierGenerator_.generateUniqueIdentifier());
+        var id = createIdentifierExpression(
+            this.identifierGenerator_.generateUniqueIdentifier());
 
         var forEach = createForOfStatement(
             createVariableDeclarationList(
@@ -125,8 +128,8 @@ traceur.define('codegeneration', function() {
   });
 
   /**
-   * This pass just finds function bodies with yields in them and passes them off to
-   * the GeneratorTransformer for the heavy lifting.
+   * This pass just finds function bodies with yields in them and passes them
+   * off to the GeneratorTransformer for the heavy lifting.
    * @param {UniqueIdentifierGenerator} identifierGenerator
    * @param {ErrorReporter} reporter
    * @extends {ParseTreeTransformer}
@@ -140,7 +143,8 @@ traceur.define('codegeneration', function() {
 
   GeneratorTransformPass.transformTree = function(identifierGenerator, reporter,
       tree) {
-    return new GeneratorTransformPass(identifierGenerator, reporter).transformAny(tree);
+    return new GeneratorTransformPass(identifierGenerator, reporter).
+        transformAny(tree);
   }
 
   GeneratorTransformPass.prototype = traceur.createObject(
@@ -158,7 +162,7 @@ traceur.define('codegeneration', function() {
       return new FunctionDeclaration(
           null,
           tree.name,
-          tree.isStatic,
+          false, // The generator has been transformed away.
           tree.formalParameterList,
           body);
     },
@@ -177,22 +181,28 @@ traceur.define('codegeneration', function() {
         return body;
       }
 
-      // We need to transform for-in loops because the object key iteration cannot be interrupted.
-      if (finder.hasForIn) {
-        body = ForInTransformPass.transformTree(this.identifierGenerator_, body);
+      // We need to transform for-in loops because the object key iteration
+      // cannot be interrupted.
+      if (finder.hasForIn &&
+          (options.generators || options.deferredFunctions)) {
+        body = ForInTransformPass.transformTree(this.identifierGenerator_,
+                                                body);
       }
 
-      if (finder.hasYieldFor) {
-        body = YieldForTransformer.transformTree(this.identifierGenerator_, body);
+      if (finder.hasYieldFor && options.generators) {
+        body = YieldForTransformer.transformTree(this.identifierGenerator_,
+                                                 body);
       }
 
-      var transformed;
       if (finder.hasYield) {
-        transformed = GeneratorTransformer.transformGeneratorBody(this.reporter_, body);
-      } else {
-        transformed = AsyncTransformer.transformAsyncBody(this.reporter_, body);
+        if (options.generators) {
+          body = GeneratorTransformer.transformGeneratorBody(this.reporter_,
+                                                             body);
+        }
+      } else if (options.deferredFunctions) {
+        body = AsyncTransformer.transformAsyncBody(this.reporter_, body);
       }
-      return transformed;
+      return body;
     },
 
     /**
@@ -207,7 +217,6 @@ traceur.define('codegeneration', function() {
       return new GetAccessor(
           null,
           tree.propertyName,
-          tree.isStatic,
           body);
     },
 
@@ -223,7 +232,6 @@ traceur.define('codegeneration', function() {
       return new SetAccessor(
           null,
           tree.propertyName,
-          tree.isStatic,
           tree.parameter,
           body);
     }

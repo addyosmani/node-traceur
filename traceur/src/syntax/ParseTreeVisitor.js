@@ -66,6 +66,15 @@ traceur.define('syntax', function() {
     },
 
     /**
+     * @param {traceur.syntax.trees.ArrayComprehension} tree
+     */
+    visitArrayComprehension: function(tree) {
+      this.visitAny(tree.expression);
+      this.visitList(tree.comprehensionForList);
+      this.visitAny(tree.ifExpression);
+    },
+
+    /**
      * @param {traceur.syntax.trees.ArrayLiteralExpression} tree
      */
     visitArrayLiteralExpression: function(tree) {
@@ -110,6 +119,21 @@ traceur.define('syntax', function() {
     },
 
     /**
+     * @param {traceur.syntax.trees.BindingElement} tree
+     */
+    visitBindingElement: function(tree) {
+      this.visitAny(tree.binding);
+      this.visitAny(tree.initializer);
+    },
+
+    /**
+     * @param {traceur.syntax.trees.BindingIdentifier} tree
+     */
+    visitBindingIdentifier: function(tree) {
+      // noop
+    },
+
+    /**
      * @param {traceur.syntax.trees.Block} tree
      */
     visitBlock: function(tree) {
@@ -142,7 +166,16 @@ traceur.define('syntax', function() {
      * @param {traceur.syntax.trees.Catch} tree
      */
     visitCatch: function(tree) {
+      this.visitAny(tree.binding);
       this.visitAny(tree.catchBody);
+    },
+
+    /**
+     * @param {traceur.syntax.trees.CascadeExpression} tree
+     */
+    visitCascadeExpression: function(tree) {
+      this.visitAny(tree.operand);
+      this.visitList(tree.expressions);
     },
 
     /**
@@ -164,6 +197,14 @@ traceur.define('syntax', function() {
      */
     visitCommaExpression: function(tree) {
       this.visitList(tree.expressions);
+    },
+
+    /**
+     * @param {traceur.syntax.trees.ComprehensionFor} tree
+     */
+    visitComprehensionFor: function(tree) {
+      this.visitAny(tree.left);
+      this.visitAny(tree.iterator);
     },
 
     /**
@@ -195,14 +236,6 @@ traceur.define('syntax', function() {
     },
 
     /**
-     * @param {traceur.syntax.trees.DefaultParameter} tree
-     */
-    visitDefaultParameter: function(tree) {
-      this.visitAny(tree.identifier);
-      this.visitAny(tree.expression);
-    },
-
-    /**
      * @param {traceur.syntax.trees.DoWhileStatement} tree
      */
     visitDoWhileStatement: function(tree) {
@@ -224,32 +257,18 @@ traceur.define('syntax', function() {
     },
 
     /**
-     * @param {traceur.syntax.trees.ExportPath} tree
+     * @param {traceur.syntax.trees.ExportMapping} tree
      */
-    visitExportPath: function(tree) {
+    visitExportMapping: function(tree) {
       this.visitAny(tree.moduleExpression);
-      this.visitAny(tree.specifier);
+      this.visitAny(tree.specifierSet);
     },
 
     /**
-     * @param {traceur.syntax.trees.ExportPathList} tree
+     * @param {traceur.syntax.trees.ExportMappingList} tree
      */
-    visitExportPathList: function(tree) {
+    visitExportMappingList: function(tree) {
       this.visitList(tree.paths);
-    },
-
-    /**
-     * @param {traceur.syntax.trees.ExportPathSpecifier} tree
-     */
-    visitExportPathSpecifier: function(tree) {
-      this.visitAny(tree.specifier);
-    },
-
-    /**
-     * @param {traceur.syntax.trees.ExportPathSpecifierSet} tree
-     */
-    visitExportPathSpecifierSet: function(tree) {
-      this.visitList(tree.specifiers);
     },
 
     /**
@@ -271,13 +290,6 @@ traceur.define('syntax', function() {
      */
     visitExpressionStatement: function(tree) {
       this.visitAny(tree.expression);
-    },
-
-    /**
-     * @param {traceur.syntax.trees.FieldDeclaration} tree
-     */
-    visitFieldDeclaration: function(tree) {
-      this.visitList(tree.declarations);
     },
 
     /**
@@ -319,14 +331,25 @@ traceur.define('syntax', function() {
      * @param {traceur.syntax.trees.FormalParameterList} tree
      */
     visitFormalParameterList: function(tree) {
+      this.visitList(tree.parameters);
     },
 
     /**
      * @param {traceur.syntax.trees.FunctionDeclaration} tree
      */
     visitFunctionDeclaration: function(tree) {
+      this.visitAny(tree.name);
       this.visitAny(tree.formalParameterList);
       this.visitAny(tree.functionBody);
+    },
+
+    /**
+     * @param {traceur.syntax.trees.GeneratorComprehension} tree
+     */
+    visitGeneratorComprehension: function(tree) {
+      this.visitAny(tree.expression);
+      this.visitList(tree.comprehensionForList);
+      this.visitAny(tree.ifExpression);
     },
 
     /**
@@ -359,18 +382,26 @@ traceur.define('syntax', function() {
     },
 
     /**
-     * @param {traceur.syntax.trees.ImportPath} tree
+     * @param {traceur.syntax.trees.ImportBinding} tree
      */
-    visitImportPath: function(tree) {
+    visitImportBinding: function(tree) {
       if (tree.importSpecifierSet !== null) {
         this.visitList(tree.importSpecifierSet);
       }
+      this.visitAny(tree.moduleExpression);
     },
 
     /**
      * @param {traceur.syntax.trees.ImportSpecifier} tree
      */
     visitImportSpecifier: function(tree) {
+    },
+
+    /**
+     * @param {traceur.syntax.trees.ImportSpecifierSet} tree
+     */
+    visitImportSpecifierSet: function(tree) {
+      this.visitList(tree.specifiers);
     },
 
     /**
@@ -405,26 +436,6 @@ traceur.define('syntax', function() {
      * @param {traceur.syntax.trees.MissingPrimaryExpression} tree
      */
     visitMissingPrimaryExpression: function(tree) {
-    },
-
-    /**
-     * @param {traceur.syntax.trees.Mixin} tree
-     */
-    visitMixin: function(tree) {
-      this.visitAny(tree.mixinResolves);
-    },
-
-    /**
-     * @param {traceur.syntax.trees.MixinResolve} tree
-     */
-    visitMixinResolve: function(tree) {
-    },
-
-    /**
-     * @param {traceur.syntax.trees.MixinResolveList} tree
-     */
-    visitMixinResolveList: function(tree) {
-      this.visitList(tree.resolves);
     },
 
     /**
@@ -539,10 +550,24 @@ traceur.define('syntax', function() {
     },
 
     /**
-     * @param {traceur.syntax.trees.QualifiedReference} tree
+     * @param {traceur.syntax.trees.QuasiLiteralExpression} tree
      */
-    visitQualifiedReference: function(tree) {
-      this.visitAny(tree.moduleExpression);
+    visitQuasiLiteralExpression: function(tree) {
+      this.visitAny(tree.operand);
+      this.visitList(tree.elements);
+    },
+
+    /**
+     * @param {traceur.syntax.trees.QuasiLiteralPortion} tree
+     */
+    visitQuasiLiteralPortion: function(tree) {
+    },
+
+    /**
+     * @param {traceur.syntax.trees.QuasiSubstitution} tree
+     */
+    visitQuasiSubstitution: function(tree) {
+      this.visitAny(tree.expression);
     },
 
     /**
@@ -618,13 +643,6 @@ traceur.define('syntax', function() {
      */
     visitThrowStatement: function(tree) {
       this.visitAny(tree.value);
-    },
-
-    /**
-     * @param {traceur.syntax.trees.TraitDeclaration} tree
-     */
-    visitTraitDeclaration: function(tree) {
-      this.visitList(tree.elements);
     },
 
     /**

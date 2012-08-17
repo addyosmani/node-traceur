@@ -15,23 +15,24 @@
 traceur.define('codegeneration.generator', function() {
   'use strict';
 
-  var TokenType = traceur.syntax.TokenType;
-  var ParseTree = traceur.syntax.trees.ParseTree;
-  var ParseTreeType = traceur.syntax.trees.ParseTreeType;
-  var ParseTreeTransformer = traceur.codegeneration.ParseTreeTransformer;
-  var PredefinedName = traceur.syntax.PredefinedName;
-
   var CaseClause = traceur.syntax.trees.CaseClause;
+  var IdentifierExpression = traceur.syntax.trees.IdentifierExpression;
+  var IdentifierToken = traceur.syntax.IdentifierToken;
+  var ParseTree = traceur.syntax.trees.ParseTree;
+  var ParseTreeFactory = traceur.codegeneration.ParseTreeFactory;
+  var ParseTreeTransformer = traceur.codegeneration.ParseTreeTransformer;
+  var ParseTreeType = traceur.syntax.trees.ParseTreeType;
+  var PredefinedName = traceur.syntax.PredefinedName;
   var StateMachine = traceur.syntax.trees.StateMachine;
   var SwitchStatement = traceur.syntax.trees.SwitchStatement;
-
-  var ParseTreeFactory = traceur.codegeneration.ParseTreeFactory;
+  var TokenType = traceur.syntax.TokenType;
 
   var createArrayLiteralExpression = ParseTreeFactory.createArrayLiteralExpression;
   var createAssignStateStatement = ParseTreeFactory.createAssignStateStatement;
   var createAssignmentExpression = ParseTreeFactory.createAssignmentExpression;
   var createAssignmentStatement = ParseTreeFactory.createAssignmentStatement;
   var createBinaryOperator = ParseTreeFactory.createBinaryOperator;
+  var createBindingIdentifier = ParseTreeFactory.createBindingIdentifier;
   var createBlock = ParseTreeFactory.createBlock;
   var createBoundCall = ParseTreeFactory.createBoundCall;
   var createBreakStatement = ParseTreeFactory.createBreakStatement;
@@ -85,7 +86,7 @@ traceur.define('codegeneration.generator', function() {
    *
    * At the top level the state machine is translated into this method:
    *
-   *      (function() {
+   *      function() {
    *       while (true) {
    *         try {
    *           switch ($state) {
@@ -112,7 +113,7 @@ traceur.define('codegeneration.generator', function() {
    *           }
    *         }
    *       }
-   *     }).bind($that)
+   *     }
    *
    * Each state in a state machine is identified by an integer which is unique across the entire
    * function body. The state machine merge process may need to perform state id substitution on
@@ -516,7 +517,7 @@ traceur.define('codegeneration.generator', function() {
       var tryMachine = this.ensureTransformed_(result.body);
       if (result.catchBlock != null) {
         var catchBlock = result.catchBlock;
-        var exceptionName = catchBlock.exceptionName.value;
+        var exceptionName = catchBlock.binding.identifierToken.value;
         var catchMachine = this.ensureTransformed_(catchBlock.catchBody);
         var startState = tryMachine.startState;
         var fallThroughState = tryMachine.fallThroughState;
@@ -611,7 +612,8 @@ traceur.define('codegeneration.generator', function() {
           var declaration = tree.declarations[i];
           if (declaration.initializer != null) {
             expressions.push(createAssignmentExpression(
-                this.transformAny(declaration.lvalue),
+                createIdentifierExpression(
+                    this.transformAny(declaration.lvalue)),
                 this.transformAny(declaration.initializer)));
           }
         }
@@ -676,11 +678,20 @@ traceur.define('codegeneration.generator', function() {
      * @return {ParseTree}
      */
     transformThisExpression: function(tree) {
-      // TODO: this can be removed...
-      return createIdentifierExpression(PredefinedName.THAT);
+      return new IdentifierExpression(tree.location,
+          new IdentifierToken(tree.location, PredefinedName.$THAT));
     },
 
-    //      (function() {
+    transformIdentifierExpression: function(tree) {
+      if (tree.identifierToken.value === PredefinedName.ARGUMENTS) {
+        return new IdentifierExpression(tree.location,
+            new IdentifierToken(tree.location, PredefinedName.$ARGUMENTS));
+      }
+      return tree;
+    },
+
+    // With this to $that and arguments to $arguments alpha renaming
+    //      function() {
     //       while (true) {
     //         try {
     //           switch ($state) {
@@ -707,31 +718,33 @@ traceur.define('codegeneration.generator', function() {
     //           }
     //         }
     //       }
-    //     }).bind($that)
+    //     }
     /**
      * @param {StateMachine} machine
      * @return {CallExpression}
      */
     generateMachineMethod: function(machine) {
-      //  (function() {
-      return createBoundCall(
-          createFunctionExpression(createEmptyParameterList(),
+      //  function() {
+      return createFunctionExpression(createEmptyParameterList(),
               //     while (true) {
               createBlock(createWhileStatement(
                   createTrueLiteral(),
-                  this.generateMachine(machine)))),
-          //       }
-          //     }
-          // }).bind($that);
-          createIdentifierExpression(PredefinedName.THAT));
+                  this.generateMachine(machine))));
     },
 
     /** @return {VariableStatement} */
     generateHoistedThis: function() {
       // Hoist 'this' argument for later bind-ing.
       //   var $that = this;
-      return createVariableStatement(TokenType.VAR, PredefinedName.THAT,
+      return createVariableStatement(TokenType.VAR, PredefinedName.$THAT,
           createThisExpression());
+    },
+
+    /** @return {VariableStatement} */
+    generateHoistedArguments: function() {
+      // var $arguments = argument;
+      return createVariableStatement(TokenType.VAR, PredefinedName.$ARGUMENTS,
+          createIdentifierExpression(PredefinedName.ARGUMENTS));
     },
 
     /**
@@ -784,7 +797,7 @@ traceur.define('codegeneration.generator', function() {
       body = createTryStatement(
           createBlock(body),
           createCatch(
-              createIdentifierToken(PredefinedName.CAUGHT_EXCEPTION),
+              createBindingIdentifier(PredefinedName.CAUGHT_EXCEPTION),
               createBlock(
                   createAssignmentStatement(
                       createIdentifierExpression(PredefinedName.STORED_EXCEPTION),

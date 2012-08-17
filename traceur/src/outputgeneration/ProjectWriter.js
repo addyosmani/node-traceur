@@ -12,30 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-traceur.define('semantics.symbols', function() {
+traceur.define('outputgeneration', function() {
   'use strict';
 
-  var PropertyAccessor = traceur.semantics.symbols.PropertyAccessor;
-  var SymbolType = traceur.semantics.symbols.SymbolType;
-  var PropertyAccessor = traceur.semantics.symbols.PropertyAccessor;
+  var TreeWriter = traceur.outputgeneration.TreeWriter;
 
   /**
-   * A set property acccessor.
-   *
-   * @param {PropertySymbol} property
-   * @param {SetAccessor} tree
-   * @constructor
-   * @extends {PropertyAccessor}
+   * Writes all the files in the project to a stream.
    */
-  function SetAccessor(property, tree) {
-    PropertyAccessor.call(this, property);
+  function ProjectWriter() {}
 
-    this.tree = tree;
-  }
-
-  SetAccessor.prototype = Object.create(PropertyAccessor.prototype);
+  /**
+   * @param {traceur.util.ObjectMap} results
+   * @param {Object} opt_options to ParseTreeWriter.write
+   * @return {string}
+   */
+  ProjectWriter.write = function(results, opt_options) {
+    var sb = [];
+    results.keys().forEach(function(file) {
+      sb.push('// ' + file.name,
+              TreeWriter.write(results.get(file), opt_options));
+    });
+    return sb.join('\n') + '\n';
+  };
 
   return {
-    SetAccessor: SetAccessor
+    ProjectWriter: ProjectWriter
   };
 });
